@@ -61,7 +61,7 @@ select{padding:6px;border:2px solid var(--ink);background:var(--white)}
 </main>
 <script>
 // Set this to your deployed backend URL (no trailing slash) before deploying the frontend.
-const API = window.API_BASE || "http://localhost:8000";
+const API = window.API_BASE ?? (location.protocol === "file:" || ["5500","5501"].includes(location.port) ? "http://127.0.0.1:8000" : "");
 const $ = id => document.getElementById(id);
 const label = s => s.replace("_"," ").replace(/^./,c=>c.toUpperCase());
 const esc = s => String(s ?? "").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
