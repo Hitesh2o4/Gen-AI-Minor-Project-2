@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UrbanPulse – Service Desk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap">
+<style>
+:root{--ink:#16202B;--sign:#FFC93C;--concrete:#E9ECEF;--white:#fff;--red:#C62F2F;--green:#1F7A4D;--mute:#5B6670}
+*{box-sizing:border-box}
+body{margin:0;font-family:Archivo,system-ui,sans-serif;background:var(--concrete);color:var(--ink);line-height:1.5}
+header{background:var(--ink);color:var(--white);padding:18px 24px;border-bottom:6px solid var(--sign)}
+header h1{margin:0;font-size:1.6rem;font-weight:800;letter-spacing:-.02em}
+header p{margin:2px 0 0;color:#B8C1CA}
+main{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:24px;padding:24px;max-width:1200px;margin:auto}
+@media(max-width:820px){main{grid-template-columns:1fr;padding:16px}}
+h2{font-size:1.05rem;margin:0 0 12px}
+.panel{background:var(--white);padding:20px;border:2px solid var(--ink)}
+.drop{display:block;border:2px dashed var(--ink);padding:28px 16px;text-align:center;cursor:pointer;background:var(--concrete)}
+.drop:hover,.drop:focus-within,.drop.over{background:#FFF3CC}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.drop strong{display:block;font-size:1.05rem}.drop span{color:var(--mute);font-size:.9rem}
+button,select{font:inherit}
+.btn{margin-top:12px;width:100%;padding:12px;background:var(--ink);color:var(--white);border:0;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,select:focus-visible,.drop:focus-within{outline:3px solid var(--sign);outline-offset:2px}
+.msg{margin-top:12px;padding:10px 12px;border-left:6px solid var(--red);background:#FBE9E9}
+.slip{margin-top:16px;border:2px solid var(--ink)}
+.slip .top{background:var(--sign);padding:8px 12px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
+.slip dl{margin:0;padding:12px;display:grid;grid-template-columns:110px 1fr;gap:6px 10px}
+.slip dt{color:var(--mute)}.slip dd{margin:0;font-weight:600}
+.missing{color:var(--red);font-weight:600}
+.flag{padding:8px 12px;font-weight:600;border-top:2px solid var(--ink)}
+.flag.ok{background:#E4F3EB;color:var(--green)}.flag.warn{background:#FBE9E9;color:var(--red)}
+.tk{border:2px solid var(--ink);margin-bottom:12px;background:var(--white)}
+.tk .row{display:flex;justify-content:space-between;gap:12px;align-items:start;padding:10px 12px;flex-wrap:wrap}
+.tk p{margin:0;padding:0 12px 10px}.tk small{color:var(--mute)}
+.pill{display:inline-block;padding:1px 8px;font-size:.82rem;font-weight:600;border:2px solid var(--ink)}
+.u-critical{background:var(--red);color:#fff;border-color:var(--red)}.u-high{background:var(--sign)}
+select{padding:6px;border:2px solid var(--ink);background:var(--white)}
+.empty{color:var(--mute);padding:16px;border:2px dashed var(--mute)}
+</style>
+</head>
+<body>
+<header><h1>UrbanPulse</h1><p>Upload a citizen complaint. It becomes a routed service ticket.</p></header>
+<main>
+  <section class="panel" aria-labelledby="up">
+    <h2 id="up">New complaint</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".txt,.pdf,.docx">
+      <strong id="fname">Choose a complaint file</strong>
+      <span>.txt, .pdf or .docx, up to 5 MB</span>
+    </label>
+    <button class="btn" id="go" disabled>Create ticket</button>
+    <div id="out" aria-live="polite"></div>
+  </section>
+  <section aria-labelledby="bd">
+    <h2 id="bd">Ticket board</h2>
+    <div id="board"><div class="empty">Loading tickets…</div></div>
+  </section>
+</main>
+<script>
+// Set this to your deployed backend URL (no trailing slash) before deploying the frontend.
+const API = window.API_BASE || "http://localhost:8000";
+const $ = id => document.getElementById(id);
+const label = s => s.replace("_"," ").replace(/^./,c=>c.toUpperCase());
+const esc = s => String(s ?? "").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let chosen = null;
+
+$("file").onchange = e => { chosen = e.target.files[0] || null; $("fname").textContent = chosen ? chosen.name : "Choose a complaint file"; $("go").disabled = !chosen; };
+["dragover","dragleave","drop"].forEach(ev => $("drop").addEventListener(ev, e => {
+  e.preventDefault(); $("drop").classList.toggle("over", ev==="dragover");
+  if (ev==="drop" && e.dataTransfer.files[0]) { $("file").files = e.dataTransfer.files; $("file").onchange({target:$("file")}); }
+}));
+
+function slip(r){
+  const t=r.ticket, miss=new Set(t.missing_fields);
+  const f=(k,v)=>miss.has(k)?`<span class="missing">Not found in document</span>`:esc(v);
+  return `<div class="slip"><div class="top"><span>Ticket #${t.id} saved</span><span>${esc(t.department)}</span></div>
+  <dl><dt>Category</dt><dd>${label(t.category)}</dd><dt>Urgency</dt><dd>${label(t.urgency)}</dd>
+  <dt>Location</dt><dd>${f("location",t.location)}</dd><dt>Reporter</dt><dd>${f("reporter_name",t.reporter_name)}</dd>
+  <dt>Summary</dt><dd>${f("description",t.description)}</dd></dl>
+  <div class="flag ${r.validation==="valid"?"ok":"warn"}">${r.validation==="valid"?"Validation passed. All fields found.":"Needs review: "+t.missing_fields.join(", ").replace(/_/g," ")+" missing."}</div></div>`;
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true; $("go").textContent = "Reading document…"; $("out").innerHTML = "";
+  try {
+    const fd = new FormData(); fd.append("file", chosen);
+    const res = await fetch(API + "/api/tickets/upload", {method:"POST", body:fd});
+    const body = await res.json().catch(()=>({}));
+    if (!res.ok) throw new Error(body.detail || "Request failed (" + res.status + ")");
+    $("out").innerHTML = slip(body); loadBoard();
+  } catch (e) {
+    $("out").innerHTML = `<div class="msg" role="alert">${esc(e.message === "Failed to fetch" ? "Cannot reach the server. Check your connection and try again." : e.message)}</div>`;
+  } finally { $("go").textContent = "Create ticket"; $("go").disabled = !chosen; }
+};
+
+async function loadBoard(){
+  try {
+    const list = await (await fetch(API + "/api/tickets")).json();
+    $("board").innerHTML = list.length ? list.map(t=>`<article class="tk">
+      <div class="row"><div><strong>#${t.id} ${label(t.category)}</strong> <span class="pill u-${t.urgency}">${label(t.urgency)}</span><br><small>${esc(t.department)} · ${esc(t.location||"Location missing")}</small></div>
+      <select aria-label="Status of ticket ${t.id}" data-id="${t.id}">${["open","in_progress","resolved"].map(s=>`<option value="${s}" ${s===t.status?"selected":""}>${label(s)}</option>`).join("")}</select></div>
+      <p>${esc(t.description||"No description extracted.")}</p></article>`).join("")
+      : `<div class="empty">No tickets yet. Upload a complaint to create the first one.</div>`;
+  } catch { $("board").innerHTML = `<div class="msg">Could not load tickets. Is the backend running?</div>`; }
+}
+$("board").onchange = async e => {
+  if (!e.target.matches("select")) return;
+  const r = await fetch(`${API}/api/tickets/${e.target.dataset.id}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({status:e.target.value})});
+  if (!r.ok) { alert("Could not update status."); loadBoard(); }
+};
+loadBoard();
+</script>
+</body>
+</html>
